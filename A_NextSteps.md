@@ -1,3 +1,6 @@
+[Previous: 4. Reading Sectors](4_ReadingSectors.md)
+---
+
 # Next Steps
 
 Here are some possible next steps.  Whether they're worthwhile depends on your needs.
@@ -48,3 +51,6 @@ And if we move MOSI to PB7, but keep CS and SCK on port A, then we can very
 easily write the whole output value to port B, shift it, write again, etc.
 
 TBC
+
+---
+[Next: Older SD/MMC Cards](B_OlderCards.md)
