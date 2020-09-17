@@ -1,3 +1,6 @@
+[Previous: Hardware Setup](0c_HardwareSetup.md)
+---
+
 # 1. Reading and Writing Bytes
 
 Source code: [1\_readwritebyte.s](src/1\_readwritebyte.s)
@@ -50,3 +53,5 @@ Result code 09 means CRC failure.  At least some data is getting through each
 way though.  Make sure MOSI, MISO, and SCK are correctly connected.  Make sure
 the data being sent - and CRC - are correct in the code.  
 
+---
+[Next: 2. Sending Commands](2_SendCommand.md)
