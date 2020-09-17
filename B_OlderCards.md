@@ -1,3 +1,6 @@
+[Previous: Next Steps](A_NextSteps.md)
+---
+
 # Supporting Older Cards
 
 I've only bothered to support SDHC cards or newer, as the API changed a bit for
@@ -20,3 +23,5 @@ the older cards.
 
 As always, refer to <http://elm-chan.org/docs/mmc/mmc_e.html> for more details.
 
+---
+[Contents](README.md)
