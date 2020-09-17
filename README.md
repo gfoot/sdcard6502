@@ -1,6 +1,6 @@
 # How to read SD cards with a 6502, step by step
 
-<img src="sdcardreader6502.jpg" title="SD card reader in a circuit">
+<img src="img/sdcardreader6502.jpg" title="SD card reader in a circuit">
 
 This guide shows how to connect up an SD card reader to a Ben Eater style 6502
 homebrew computer and use it to read data from SDHC cards.
@@ -19,17 +19,17 @@ the code quite a bit.
 # Contents
 
 ### Intro
-* [0a Prerequisites and References](0a_Prereqs.md)
-* [0b About the Sample Code](0b_SampleCode.md)
-* [0c Initial Hardware Setup](0c_HardwareSetup.md)
+* [0a Prerequisites and References](doc/0a_Prereqs.md)
+* [0b About the Sample Code](doc/0b_SampleCode.md)
+* [0c Initial Hardware Setup](doc/0c_HardwareSetup.md)
 
 ### Samples
-* [1  Reading and Writing Bytes](1_ReadingWritingBytes.md)
-* [2  Encaplusated sd\_sendcommand](2_SendCommand.md)
-* [3  Complete Initialization Sequence](3_Initialization.md)
-* [4  Reading Sectors](4_ReadingSectors.md)
+* [1  Reading and Writing Bytes](doc/1_ReadingWritingBytes.md)
+* [2  Encaplusated sd\_sendcommand](doc/2_SendCommand.md)
+* [3  Complete Initialization Sequence](doc/3_Initialization.md)
+* [4  Reading Sectors](doc/4_ReadingSectors.md)
   
 ### Appendices
-* [A  Next Steps](A_NextSteps.md)
-* [B  Older SD/MMC Cards](B_OlderCards.md)
+* [A  Next Steps](doc/A_NextSteps.md)
+* [B  Older SD/MMC Cards](doc/B_OlderCards.md)
 

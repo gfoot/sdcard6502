@@ -24,4 +24,4 @@ the older cards.
 As always, refer to <http://elm-chan.org/docs/mmc/mmc_e.html> for more details.
 
 ---
-[Contents](README.md)
+[Contents](../README.md)

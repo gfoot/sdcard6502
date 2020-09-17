@@ -1,4 +1,4 @@
-[Previous: Contents](README.md)
+[Previous: Contents](../README.md)
 ---
 
 # Prerequisites
@@ -11,7 +11,7 @@ adapt for other arrangements though - so long as you have a 6522 VIA.
 You'll also need a socket to plug your SD card into.  I bought two of these
 simple microSD adapters from a popular online marketplace:
 
-   <img src="sdcardreader6502.jpg" width="350" title="SD card reader in a circuit">
+   <img src="../img/sdcardreader6502.jpg" width="350" title="SD card reader in a circuit">
 
 There's not much logic on the board itself, just a 3.3V regulator and an IC to
 level-shift between the SD card's 3.3V signals and your computer's 5V
