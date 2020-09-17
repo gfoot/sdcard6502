@@ -1,3 +1,5 @@
+[Previous: Contents](README.md)
+---
 # Prerequisites
 
 It's assumed that you're starting with something like Ben Eater's 6502 setup,
@@ -39,3 +41,5 @@ You can also download the Physical Layer Simplified Specification from
 
 As usual there are also many discussions on 6502.org.
 
+---
+[Next: About the Sample Code](0b_SampleCode.md)
