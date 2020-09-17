@@ -1,5 +1,6 @@
 [Previous: Contents](README.md)
 ---
+
 # Prerequisites
 
 It's assumed that you're starting with something like Ben Eater's 6502 setup,
