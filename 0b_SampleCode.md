@@ -1,6 +1,6 @@
 # About the Sample Code
 
-Sample code is provided in the [src] folder, with one file corresponding to each chapter.
+Sample code is provided in the [src](src) folder, with one file corresponding to each chapter.
 
 The code is based on Ben Eater's code, and can be assembled with the same kind of command:
 
