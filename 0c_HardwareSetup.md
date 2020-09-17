@@ -1,3 +1,6 @@
+[Previous: About the Sample Code](0b_SampleCode.md)
+---
+
 # Initial Hardware Setup
 
 For this tutorial I'm using a very simple hardware setup, to make it clear how
@@ -47,3 +50,5 @@ Unfortunately there's no easy way to check that this is working - you need to
 write proper SPI send/receive functions first, which are covered in the next
 chapter.
 
+---
+[Next: 1. Reading and Writing Bytes](1_ReadingWritingBytes.md)
