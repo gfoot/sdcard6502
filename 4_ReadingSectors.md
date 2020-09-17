@@ -1,3 +1,6 @@
+[Previous: 3. Complete Initialization Sequence](3_Initialization.md)
+---
+
 # 4. Reading Sectors
 
 Source code: [4\_readsector.s](src/4\_readsector.s)
@@ -26,3 +29,5 @@ There shouldn't be any extra issues here, but if you get errors from
 initialization that weren't happening before, try adding some of the delays
 back into the initialization code.
 
+---
+[Next: Next Steps](A_NextSteps.md)
