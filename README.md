@@ -18,15 +18,18 @@ the code quite a bit.
 
 # Contents
 
+### Intro
 * [0a Prerequisites and References](0a_Prereqs.md)
 * [0b About the Sample Code](0b_SampleCode.md)
 * [0c Initial Hardware Setup](0c_HardwareSetup.md)
-  
+
+### Samples
 * [1  Reading and Writing Bytes](1_ReadingWritingBytes.md)
 * [2  Encaplusated sd\_sendcommand](2_SendCommand.md)
 * [3  Complete Initialization Sequence](3_Initialization.md)
 * [4  Reading Sectors](4_ReadingSectors.md)
   
+### Appendices
 * [A  Next Steps](A_NextSteps.md)
 * [B  Older SD/MMC Cards](B_OlderCards.md)
 
