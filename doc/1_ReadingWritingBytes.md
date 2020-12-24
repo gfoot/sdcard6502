@@ -3,7 +3,7 @@
 
 # 1. Reading and Writing Bytes
 
-Source code: [1\_readwritebyte.s](src/1\_readwritebyte.s)
+Source code: [1\_readwritebyte.s](../src/1\_readwritebyte.s)
 
 This sample warms up the SD card, reads and prints a byte, sends a command, and prints the response.
 

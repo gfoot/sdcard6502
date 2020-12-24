@@ -3,7 +3,7 @@
 
 # 4. Reading Sectors
 
-Source code: [4\_readsector.s](src/4\_readsector.s)
+Source code: [4\_readsector.s](../src/4\_readsector.s)
 
 This sample follows successful initialization with a call to CMD17 to read a sector from the SD card.
 

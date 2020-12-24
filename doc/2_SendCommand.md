@@ -3,7 +3,7 @@
 
 # 2. Sending Commands
 
-Source code: [2\_sendcommand.s](src/2\_sendcommand.s)
+Source code: [2\_sendcommand.s](../src/2\_sendcommand.s)
 
 This sample uses an encapsulated `sd_sendcommand` subroutine to send the CMD0
 and CMD8 commands to the card in sequence.

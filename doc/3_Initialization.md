@@ -3,7 +3,7 @@
 
 # 3. Complete Initialization Sequence
 
-Source code: [3\_fullinitialization.s](src/3\_fullinitialization.s)
+Source code: [3\_fullinitialization.s](../src/3\_fullinitialization.s)
 
 This sample adds a loop issuing ACMD41, which completes the initialization process.
 
