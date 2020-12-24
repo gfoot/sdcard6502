@@ -6,7 +6,7 @@ should affect usage with SD cards.
 
 # Example program
 
-See [test\_dumpfile.s](src/test\_dumpfile.s) for an example of usage.
+See [test\_dumpfile.s](../src/test\_dumpfile.s) for an example of usage.
 
 It initializes things, then searches the root directory for a folder called "subfoldr",
 then searches that subfolder for a file called "deepfile.txt", then loads it and prints
