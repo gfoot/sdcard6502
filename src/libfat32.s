@@ -3,23 +3,28 @@
 ; This module requires some RAM workspace to be defined elsewhere:
 ; 
 ; fat32_workspace    - a large page-aligned 512-byte workspace
-; zp_fat32_variables - 24 bytes of zero-page storage for variables etc
-
+; zp_fat32_variables - 52 bytes of zero-page storage for variables etc
 
 fat32_readbuffer = fat32_workspace
 
-fat32_fatstart          = zp_fat32_variables + $00  ; 4 bytes
-fat32_datastart         = zp_fat32_variables + $04  ; 4 bytes
-fat32_rootcluster       = zp_fat32_variables + $08  ; 4 bytes
-fat32_sectorspercluster = zp_fat32_variables + $0c  ; 1 byte
-fat32_pendingsectors    = zp_fat32_variables + $0d  ; 1 byte
-fat32_address           = zp_fat32_variables + $0e  ; 2 bytes
-fat32_nextcluster       = zp_fat32_variables + $10  ; 4 bytes
-fat32_bytesremaining    = zp_fat32_variables + $14  ; 4 bytes 
+fat32_fatstart          	  = zp_fat32_variables + $00  ; 4 bytes
+fat32_datastart         	  = zp_fat32_variables + $04  ; 4 bytes
+fat32_rootcluster       	  = zp_fat32_variables + $08  ; 4 bytes
+fat32_sectorspercluster 	  = zp_fat32_variables + $0c  ; 1 byte
+fat32_pendingsectors    	  = zp_fat32_variables + $0d  ; 1 byte
+fat32_address           	  = zp_fat32_variables + $0e  ; 2 bytes
+fat32_nextcluster       	  = zp_fat32_variables + $10  ; 4 bytes
+fat32_bytesremaining    	  = zp_fat32_variables + $14  ; 4 bytes   	
+fat32_lastfoundfreecluster	= zp_fat32_variables + $18  ; 4 bytes
+fat32_filenamepointer       = zp_fat32_variables + $1c  ; 2 bytes
+fat32_lastcluster		        = zp_fat32_variables + $1e  ; 4 bytes
+fat32_lastsector	        	= zp_fat32_variables + $22  ; 4 bytes
+fat32_numfats			          = zp_fat32_variables + $26  ; 1 byte
+fat32_filecluster		        = zp_fat32_variables + $27  ; 4 bytes
+fat32_sectorsperfat		      = zp_fat32_variables + $2b  ; 4 bytes
+fat32_cdcluster             = zp_fat32_variables + $2f  ; 4 bytes
 
-fat32_errorstage        = fat32_bytesremaining  ; only used during initializatio
-fat32_filenamepointer   = fat32_bytesremaining  ; only used when searching for a file
-
+fat32_errorstage            = fat32_bytesremaining  ; only used during initialization
 
 fat32_init:
   ; Initialize the module - read the MBR etc, find the partition,
@@ -39,8 +44,10 @@ fat32_init:
 
   ; Target buffer
   lda #<fat32_readbuffer
+  sta fat32_address
   sta zp_sd_address
   lda #>fat32_readbuffer
+  sta fat32_address+1
   sta zp_sd_address+1
 
   ; Do the read
@@ -128,7 +135,6 @@ fat32_init:
   cmp #2
   bne .fail
 
-
   ; Calculate the starting sector of the FAT
   clc
   lda zp_sd_currentsector
@@ -150,6 +156,7 @@ fat32_init:
 
   ; Calculate the starting sector of the data area
   ldx fat32_readbuffer+16   ; number of FATs
+  stx fat32_numfats         ; (stash for later as well)
 .skipfatsloop
   clc
   lda fat32_datastart
@@ -181,6 +188,33 @@ fat32_init:
   lda fat32_readbuffer+47
   sta fat32_rootcluster+3
 
+  ; Save Sectors Per FAT
+  lda fat32_readbuffer+36
+  sta fat32_sectorsperfat
+  lda fat32_readbuffer+37
+  sta fat32_sectorsperfat+1
+  lda fat32_readbuffer+38
+  sta fat32_sectorsperfat+2
+  lda fat32_readbuffer+39
+  sta fat32_sectorsperfat+3
+
+  ; Set the last found free cluster to 0.
+  lda #0
+  sta fat32_lastfoundfreecluster
+  sta fat32_lastfoundfreecluster+1
+  sta fat32_lastfoundfreecluster+2
+  sta fat32_lastfoundfreecluster+3
+
+  ; As well as the last read clusters and sectors
+  sta fat32_lastcluster
+  sta fat32_lastcluster+1
+  sta fat32_lastcluster+2
+  sta fat32_lastcluster+3
+  sta fat32_lastsector
+  sta fat32_lastsector+1
+  sta fat32_lastsector+2
+  sta fat32_lastsector+3
+
   clc
   rts
 
@@ -190,8 +224,28 @@ fat32_init:
 
 
 fat32_seekcluster:
-  ; Gets ready to read fat32_nextcluster, and advances it according to the FAT
-  
+; Calculates the FAT sector given fat32_nextcluster and stores in zp_sd_currentsector
+; Optionally will load the 512 byte FAT sector into memory at fat32_readbuffer
+; If carry is set, subroutine is optimized to skip the loading if the expected
+; sector is already loaded. Clearing carry before calling will skip optimization
+; and force reload of the FAT sector. Once the FAT sector is loaded,
+; the next cluster in the chain is loaded into fat32_nextcluster and
+; zp_sd_currentsector is updated to point to the referenced data sector
+
+; This routine also leaves Y pointing to the LSB for the 32 bit next cluster.
+
+; Gets ready to read fat32_nextcluster, and advances it according to the FAT                            
+; Before calling, set carry to compare the current FAT sector with lastsector.
+; Otherwize, clear carry to force reading the FAT.            
+
+  php
+
+  ; Target buffer
+  lda #<fat32_readbuffer
+  sta zp_sd_address
+  lda #>fat32_readbuffer
+  sta zp_sd_address+1
+
   ; FAT sector = (cluster*4) / 512 = (cluster*2) / 256
   lda fat32_nextcluster
   asl
@@ -220,14 +274,41 @@ fat32_seekcluster:
   adc fat32_fatstart+3
   sta zp_sd_currentsector+3
 
-  ; Target buffer
-  lda #<fat32_readbuffer
-  sta zp_sd_address
-  lda #>fat32_readbuffer
-  sta zp_sd_address+1
+  ; Branch if we don't need to check
+  plp
+  bcc .newsector
+
+  ; Check if this sector is the same as the last one
+  lda fat32_lastsector
+  cmp zp_sd_currentsector
+  bne .newsector
+  lda fat32_lastsector+1
+  cmp zp_sd_currentsector+1
+  bne .newsector
+  lda fat32_lastsector+2
+  cmp zp_sd_currentsector+2
+  bne .newsector
+  lda fat32_lastsector+3
+  cmp zp_sd_currentsector+3
+  beq .notnew
+
+.newsector
 
   ; Read the sector from the FAT
   jsr sd_readsector
+
+  ; Update fat32_lastsector
+
+  lda zp_sd_currentsector
+  sta fat32_lastsector
+  lda zp_sd_currentsector+1
+  sta fat32_lastsector+1
+  lda zp_sd_currentsector+2
+  sta fat32_lastsector+2
+  lda zp_sd_currentsector+3
+  sta fat32_lastsector+3
+
+.notnew
 
   ; Before using this FAT data, set currentsector ready to read the cluster itself
   ; We need to multiply the cluster number minus two by the number of sectors per 
@@ -295,6 +376,9 @@ fat32_seekcluster:
   adc #0
   sta zp_sd_address+1
 
+  ; Stash the index to next value for the cluster
+  phy 
+
   ; Copy out the next cluster in the chain for later use
   lda (zp_sd_address),y
   sta fat32_nextcluster
@@ -309,20 +393,31 @@ fat32_seekcluster:
   and #$0f
   sta fat32_nextcluster+3
 
+  ; Restore index to the table entry for the cluster
+  ply 
+
   ; See if it's the end of the chain
-  ora #$f0
-  and fat32_nextcluster+2
-  and fat32_nextcluster+1
-  cmp #$ff
+  ; Save raw value for EOC check
+  ;lda fat32_nextcluster+3
+  cmp #$0F  
+  bcc .notendofchain
+  lda fat32_nextcluster+2
+  cmp #$FF
+  bne .notendofchain
+  lda fat32_nextcluster+1
+  cmp #$FF
   bne .notendofchain
   lda fat32_nextcluster
-  cmp #$f8
+  cmp #$F8
   bcc .notendofchain
 
-  ; It's the end of the chain, set the top bits so that we can tell this later on
+  ; It's EOC
+  lda #$FF
   sta fat32_nextcluster+3
-.notendofchain
-
+  sec 
+  rts
+.notendofchain:
+  clc 
   rts
 
 
@@ -340,9 +435,24 @@ fat32_readnextsector:
 
   ; No pending sectors, check for end of cluster chain
   lda fat32_nextcluster+3
-  bmi .endofchain
+  cmp #$0F
+  bne .not_eoc
+  lda fat32_nextcluster+2
+  cmp #$FF
+  bne .not_eoc
+  lda fat32_nextcluster+1
+  cmp #$FF
+  bne .not_eoc
+  lda fat32_nextcluster
+  cmp #$F8     ; EOC starts at F8
+  bcc .not_eoc
+
+  jmp .endofchain
+
+.not_eoc:
 
   ; Prepare to read the next cluster
+  sec
   jsr fat32_seekcluster
 
 .readsector
@@ -371,24 +481,147 @@ fat32_readnextsector:
   clc
   rts
 
-.endofchain
+.endofchain:
   ; End of chain - set carry and return
   sec
   rts
 
+fat32_writenextsector:
+  ; Writes the next sector in a cluster chain from the buffer at fat32_address.
+  ;
+  ; On return, carry is set if its the end of the chain. 
+
+  ; Maybe there are pending sectors in the current cluster
+  lda fat32_pendingsectors
+  bne .beginwrite
+
+  ; No pending sectors, check for end of cluster chain
+  lda fat32_nextcluster+3
+  bmi .endofchain
+
+  ; Prepare to read the next cluster
+  sec
+  jsr fat32_seekcluster
+
+.beginwrite
+  jsr .writesector
+
+  ; Success - clear carry and return
+  clc
+  rts
+
+.endofchain
+  ; End of chain - set carry, write a sector, and return
+  jsr .writesector
+  sec
+  rts
+
+.writesector
+  dec fat32_pendingsectors
+
+  ; Set up target address
+  lda fat32_address
+  sta zp_sd_address
+  lda fat32_address+1
+  sta zp_sd_address+1
+
+  ; Write the sector
+  jsr sd_writesector
+
+  ; Advance to next sector
+  inc zp_sd_currentsector
+  bne .nextsectorincrementdone
+  inc zp_sd_currentsector+1
+  bne .nextsectorincrementdone
+  inc zp_sd_currentsector+2
+  bne .nextsectorincrementdone
+  inc zp_sd_currentsector+3
+.nextsectorincrementdone
+  rts
+
+fat32_updatefat:
+ ; Preserve the current sector
+  lda zp_sd_currentsector
+  pha 
+  lda zp_sd_currentsector+1
+  pha 
+  lda zp_sd_currentsector+2
+  pha 
+  lda zp_sd_currentsector+3
+  pha
+
+  ; Write FAT sector
+  lda fat32_lastsector
+  sta zp_sd_currentsector
+  lda fat32_lastsector+1
+  sta zp_sd_currentsector+1
+  lda fat32_lastsector+2
+  sta zp_sd_currentsector+2
+  lda fat32_lastsector+3
+  sta zp_sd_currentsector+3
+
+  ; Target buffer
+  lda #<fat32_readbuffer
+  sta zp_sd_address
+  lda #>fat32_readbuffer
+  sta zp_sd_address+1
+
+  ; Write the FAT sector
+  jsr sd_writesector
+
+  ; Check if FAT mirroring is enabled
+  lda fat32_numfats
+  cmp #2
+  bne .onefat
+
+  ; Add the last sector to the amount of sectors per FAT
+  ; (to get the second fat location)
+  lda fat32_lastsector
+  adc fat32_sectorsperfat
+  sta zp_sd_currentsector
+  lda fat32_lastsector+1
+  adc fat32_sectorsperfat+1
+  sta zp_sd_currentsector+1
+  lda fat32_lastsector+2
+  adc fat32_sectorsperfat+2
+  sta zp_sd_currentsector+2
+  lda fat32_lastsector+3
+  adc fat32_sectorsperfat+3
+  sta zp_sd_currentsector+3
+
+  ; Write the FAT sector
+  jsr sd_writesector
+
+.onefat
+  ; Pull back the current sector
+  pla
+  sta zp_sd_currentsector+3
+  pla
+  sta zp_sd_currentsector+2
+  pla
+  sta zp_sd_currentsector+1
+  pla
+  sta zp_sd_currentsector
+
+  rts
 
 fat32_openroot:
   ; Prepare to read the root directory
 
   lda fat32_rootcluster
   sta fat32_nextcluster
+  sta fat32_cdcluster
   lda fat32_rootcluster+1
   sta fat32_nextcluster+1
+  sta fat32_cdcluster+1
   lda fat32_rootcluster+2
   sta fat32_nextcluster+2
+  sta fat32_cdcluster+2
   lda fat32_rootcluster+3
   sta fat32_nextcluster+3
+  sta fat32_cdcluster+3
 
+  clc
   jsr fat32_seekcluster
 
   ; Set the pointer to a large value so we always read a sector the first time through
@@ -397,9 +630,274 @@ fat32_openroot:
 
   rts
 
+fat32_allocatecluster:
+  ; Allocate a cluster to start storing a file at.
+
+  ; Find a free cluster
+  jsr fat32_findnextfreecluster
+
+  ; Cache the value so we can add the address of the next one later, if any
+  lda fat32_lastfoundfreecluster
+  sta fat32_lastcluster
+  sta fat32_filecluster
+  lda fat32_lastfoundfreecluster+1
+  sta fat32_lastcluster+1
+  sta fat32_filecluster+1
+  lda fat32_lastfoundfreecluster+2
+  sta fat32_lastcluster+2
+  sta fat32_filecluster+2
+  lda fat32_lastfoundfreecluster+3
+  sta fat32_lastcluster+3
+  sta fat32_filecluster+3
+
+  ; Add marker for the following routines, so we don't think this is free.
+  ; (zp_sd_address),y is controlled by fat32_seekcluster, called in fat32_findnextfreecluster
+  ; this points to the most significant byte in the last selected 32-bit FAT entry.
+  lda #$0f
+  sta (zp_sd_address),y
+
+  rts
+
+fat32_allocatefile:
+  ; Allocate an entire file in the FAT, with the
+  ; file's size in fat32_bytesremaining
+
+  ; We will read a new sector the first time around
+  stz fat32_lastsector
+  stz fat32_lastsector+1
+  stz fat32_lastsector+2
+  stz fat32_lastsector+3
+
+  ; Allocate the first cluster.
+  jsr fat32_allocatecluster
+
+  ; We don't properly support 64k+ files, as it's unnecessary complication given
+  ; the 6502's small address space. So we'll just empty out the top two bytes.
+  lda #0
+  sta fat32_bytesremaining+2
+  sta fat32_bytesremaining+3
+
+  ; Stash filesize, as we will be clobbering it here
+  lda fat32_bytesremaining
+  pha
+  lda fat32_bytesremaining+1
+  pha
+
+  ; Round the size up to the next whole sector
+  lda fat32_bytesremaining
+  cmp #1                      ; set carry if bottom 8 bits not zero
+  lda fat32_bytesremaining+1
+  adc #0                      ; add carry, if any
+  lsr                         ; divide by 2
+  adc #0                      ; round up
+
+  ; No data?
+  bne .nofail
+  jmp .done
+
+.nofail
+  ; This will be clustersremaining now.
+  sta fat32_bytesremaining
+
+  ; Divide by sectors per cluster (power of 2)
+  ; If it's 1, then skip
+  lda fat32_sectorspercluster
+.cloop
+  cmp #1
+  beq .one 
+
+  lsr
+  lsr fat32_bytesremaining+1  ; high byte
+  ror fat32_bytesremaining    ; low byte, with carry from high
+
+  jmp .cloop
+
+.one  
+
+  ; We will be making a new cluster every time
+  stz fat32_pendingsectors
+
+  ; Find free clusters and allocate them for use for this file.
+.allocateloop
+  ; Check if it's the last cluster in the chain 
+  lda fat32_bytesremaining
+  beq .lastcluster
+  cmp #1                ; CHECK! is 1 the right amount for this?
+  bcc .notlastcluster   ; clustersremaining <=1?
+
+  ; It is the last one.
+
+.lastcluster
+
+; go back the previous one
+  lda fat32_lastcluster
+  sta fat32_nextcluster
+  lda fat32_lastcluster+1
+  sta fat32_nextcluster+1
+  lda fat32_lastcluster+2
+  sta fat32_nextcluster+2
+  lda fat32_lastcluster+3
+  sta fat32_nextcluster+3
+
+  sec
+  jsr fat32_seekcluster
+
+  ; Write 0x0FFFFFFE (EOC)
+  lda #$0f
+  sta (zp_sd_address),y
+  dey
+  lda #$ff
+  sta (zp_sd_address),y
+  dey
+  sta (zp_sd_address),y
+  dey
+  lda #$fe
+  sta (zp_sd_address),y
+
+  ; Update the FAT
+  jsr fat32_updatefat
+
+  ; End of chain - exit
+  jmp .done
+
+.notlastcluster
+  ; Wait! Is there exactly 1 cluster left?
+  beq .lastcluster
+
+  ; Find the next cluster
+  jsr fat32_findnextfreecluster
+
+  ; Add marker so we don't think this is free.
+  lda #$0f
+  sta (zp_sd_address),y
+
+  ; Seek to the previous cluster
+  lda fat32_lastcluster
+  sta fat32_nextcluster
+  lda fat32_lastcluster+1
+  sta fat32_nextcluster+1
+  lda fat32_lastcluster+2
+  sta fat32_nextcluster+2
+  lda fat32_lastcluster+3
+  sta fat32_nextcluster+3
+
+  sec
+  jsr fat32_seekcluster
+
+  phy
+  ; Enter the address of the next one into the FAT
+  lda fat32_lastfoundfreecluster+3
+  sta fat32_lastcluster+3
+  sta (zp_sd_address),y
+  dey
+  lda fat32_lastfoundfreecluster+2
+  sta fat32_lastcluster+2
+  sta (zp_sd_address),y
+  dey
+  lda fat32_lastfoundfreecluster+1
+  sta fat32_lastcluster+1
+  sta (zp_sd_address),y
+  dey
+  lda fat32_lastfoundfreecluster
+  sta fat32_lastcluster
+  sta (zp_sd_address),y
+  ply
+
+  ; Update the FAT
+  jsr fat32_updatefat
+
+  ldx fat32_bytesremaining    ; note - actually loads clusters remaining
+  dex
+  stx fat32_bytesremaining    ; note - actually stores clusters remaining
+
+  bne .allocateloop
+
+  ; Done!
+.done
+  ; Pull the filesize back from the stack
+  pla
+  sta fat32_bytesremaining+1
+  pla
+  sta fat32_bytesremaining
+  rts
+
+
+fat32_findnextfreecluster:
+; Find next free cluster
+; 
+; This program will search the FAT for an empty entry, and
+; save the 32-bit cluster number at fat32_lastfoundfreecluter.
+;
+; Also sets the carry bit if the SD card is full.
+;
+
+  ; Find a free cluster and store it's location in fat32_lastfoundfreecluster
+
+  lda #0
+  sta fat32_nextcluster
+  sta fat32_lastfoundfreecluster
+  lda #0
+  sta fat32_nextcluster+1
+  sta fat32_lastfoundfreecluster+1
+  sta fat32_nextcluster+2
+  sta fat32_lastfoundfreecluster+2
+  sta fat32_nextcluster+3
+  sta fat32_lastfoundfreecluster+3
+
+.searchclusters
+
+  ; Seek cluster
+  sec
+  jsr fat32_seekcluster
+
+  ; Is the cluster free?
+  lda fat32_nextcluster
+  ora fat32_nextcluster+1
+  ora fat32_nextcluster+2
+  ora fat32_nextcluster+3
+  beq .foundcluster
+
+  ; No, increment the cluster count
+  inc fat32_lastfoundfreecluster
+  bne .copycluster
+  inc fat32_lastfoundfreecluster+1
+  bne .copycluster
+  inc fat32_lastfoundfreecluster+2
+  bne .copycluster
+  inc fat32_lastfoundfreecluster+3
+
+  lda fat32_lastfoundfreecluster
+  cmp #$10
+  bcs .sd_full
+
+.copycluster
+
+  ; Copy the cluster count to the next cluster
+  lda fat32_lastfoundfreecluster
+  sta fat32_nextcluster
+  lda fat32_lastfoundfreecluster+1
+  sta fat32_nextcluster+1
+  lda fat32_lastfoundfreecluster+2
+  sta fat32_nextcluster+2
+  lda fat32_lastfoundfreecluster+3
+  and #$0f
+  sta fat32_nextcluster+3
+  
+  ; Go again for another pass
+  jmp .searchclusters
+
+.foundcluster
+  ; done.
+  clc
+  rts
+
+.sd_full
+  ; Card Full
+  sec
+  rts
 
 fat32_opendirent:
-  ; Prepare to read from a file or directory based on a dirent
+  ; Prepare to read/write a file or directory based on a dirent
   ;
   ; Point zp_sd_address at the dirent
 
@@ -431,6 +929,39 @@ fat32_opendirent:
   lda (zp_sd_address),y
   sta fat32_nextcluster+3
 
+  clc
+  ldy #$0B
+  lda (zp_sd_address),Y
+  and #$10   ; is it a directory?
+  beq .fatskip_cd_cache
+  
+  ; If it's a directory, cache the cluster
+  lda fat32_nextcluster
+  sta fat32_cdcluster
+  lda fat32_nextcluster+1
+  sta fat32_cdcluster+1
+  lda fat32_nextcluster+2
+  sta fat32_cdcluster+2
+  lda fat32_nextcluster+3
+  sta fat32_cdcluster+3
+  
+.fatskip_cd_cache:
+  
+  ; if we're opening a directory entry with 0 cluster, use the root cluster
+  lda fat32_nextcluster+3
+  bne .fseek
+  lda fat32_nextcluster+2
+  bne .fseek
+  lda fat32_nextcluster+1
+  bne .fseek
+  lda fat32_nextcluster
+  bne .fseek
+  lda fat32_rootcluster
+  sta fat32_nextcluster
+  sta fat32_cdcluster
+
+.fseek:
+  clc  
   jsr fat32_seekcluster
 
   ; Set the pointer to a large value so we always read a sector the first time through
@@ -439,6 +970,195 @@ fat32_opendirent:
 
   rts
 
+fat32_writedirent:
+  ; Write a directory entry from the open directory
+  ; requires:
+  ;   fat32bytesremaining (2 bytes) = file size in bytes (little endian)
+
+  ; Increment pointer by 32 to point to next entry
+  clc
+  lda zp_sd_address
+  adc #32
+  sta zp_sd_address
+  lda zp_sd_address+1
+  adc #0
+  sta zp_sd_address+1
+
+  ; If it's not at the end of the buffer, we have data already
+  cmp #>(fat32_readbuffer+$200)
+  bcc .gotdirrent
+
+  ; Read another sector
+  lda #<fat32_readbuffer
+  sta fat32_address
+  lda #>fat32_readbuffer
+  sta fat32_address+1
+
+  jsr fat32_readnextsector
+  bcc .gotdirrent
+
+.endofdirectorywrite
+  sec
+  rts
+
+.gotdirrent
+  ; Check first character
+  clc
+  ldy #0
+  lda (zp_sd_address),y
+  bne fat32_writedirent ; go again
+  ; End of directory. Now make a new entry.
+.dloop
+  lda (fat32_filenamepointer),y	; copy filename
+  sta (zp_sd_address),y
+  iny
+  cpy #$0b
+  bne .dloop
+  ; The full Short filename is #11 bytes long so,
+  ; this start at 0x0b - File type
+  ; BUG assumes that we are making a file, not a folder...
+  lda #$20		; File Type: ARCHIVE
+  sta (zp_sd_address),y
+  iny   ; 0x0c - Checksum/File accsess password
+  lda #$10		            ; No checksum or password
+  sta (zp_sd_address),y
+  iny   ; 0x0d - first char of deleted file - 0x7d for nothing
+  lda #$7D
+  sta (zp_sd_address),y
+  iny	; 0x0e-0x11 - File creation time/date
+  lda #0
+.empty
+  sta (zp_sd_address),y	; No time/date because I don't have an RTC
+  iny
+  cpy #$14 ; also empty the user ID (0x12-0x13)
+  bne .empty
+  ;sta (zp_sd_address),y
+  ;iny
+  ;sta (zp_sd_address),y
+  ;iny
+  ;sta (zp_sd_address),y
+  ; if you have an RTC, refer to https://en.wikipedia.org/wiki/Design_of_the_FAT_file_system#Directory_entry 
+  ; show the "Directory entry" table and look at at 0x0E onward.
+  ;iny   ; 0x12-0x13 - User ID
+  ;lda #0
+  ;sta (zp_sd_address),y	; No ID
+  ;iny 
+  ;sta (zp_sd_address),y
+  ;iny 
+  ; 0x14-0x15 - File start cluster (high word)
+  lda fat32_filecluster+2
+  sta (zp_sd_address),y
+  iny
+  lda fat32_filecluster+3
+  sta (zp_sd_address),y
+  iny ; 0x16-0x19 - File modifiaction date
+  lda #0
+  sta (zp_sd_address),y
+  iny
+  sta (zp_sd_address),y   ; no rtc
+  iny
+  sta (zp_sd_address),y
+  iny
+  sta (zp_sd_address),y
+  iny ; 0x1a-0x1b - File start cluster (low word)
+  lda fat32_filecluster
+  sta (zp_sd_address),y
+  iny
+  lda fat32_filecluster+1
+  sta (zp_sd_address),y
+  iny ; 0x1c-0x1f File size in bytes
+  lda fat32_bytesremaining
+  sta (zp_sd_address),y
+  iny
+  lda fat32_bytesremaining+1
+  sta (zp_sd_address),y
+  iny
+  lda #0
+  sta (zp_sd_address),y ; No bigger that 64k
+  iny
+  sta (zp_sd_address),y
+  iny
+  ; are we over the buffer?
+  lda zp_sd_address+1
+  cmp #>(fat32_readbuffer+$200)
+  bcc .notoverbuffer
+  jsr fat32_writecurrentsector       ; if so, write the current sector
+  jsr fat32_readnextsector  ; then read the next one.
+  bcs .dfail
+  ldy #0
+  lda #<fat32_readbuffer
+  sta zp_sd_address
+  lda #>fat32_readbuffer
+  sta zp_sd_address+1
+.notoverbuffer
+  ; next entry is 0 (end of dir)
+  lda #0
+  sta (zp_sd_address),y
+  ; Write the dirent.
+  jsr fat32_writecurrentsector
+
+  ; Great, lets get this ready for other code to read in.
+
+  ; Seek to first cluster
+  lda fat32_filecluster
+  sta fat32_nextcluster
+  lda fat32_filecluster+1
+  sta fat32_nextcluster+1
+  lda fat32_filecluster+2
+  sta fat32_nextcluster+2
+  lda fat32_filecluster+3
+  sta fat32_nextcluster+3
+
+  clc
+  jsr fat32_seekcluster
+
+  ; Set the pointer to a large value so we always read a sector the first time through
+  lda #$ff
+  sta zp_sd_address+1
+
+  clc
+  rts
+
+.dfail
+  ; Card Full
+  sec 
+  rts 
+
+fat32_writecurrentsector:
+
+  ; decrement the sector so we write the current one (not the next one)
+  lda zp_sd_currentsector
+  bne .skip
+  dec zp_sd_currentsector+1
+  bne .skip
+  dec zp_sd_currentsector+2
+  bne .skip
+  dec zp_sd_currentsector+3
+
+.skip
+  dec zp_sd_currentsector
+
+.nodec
+
+  lda fat32_address
+  sta zp_sd_address
+  lda fat32_address+1
+  sta zp_sd_address+1
+
+  ; Read the sector
+  jsr sd_writesector
+
+  ; Advance to next sector
+  inc zp_sd_currentsector
+  bne .sectorincrementdone
+  inc zp_sd_currentsector+1
+  bne .sectorincrementdone
+  inc zp_sd_currentsector+2
+  bne .sectorincrementdone
+  inc zp_sd_currentsector+3
+
+.sectorincrementdone
+  rts  
 
 fat32_readdirent:
   ; Read a directory entry from the open directory
@@ -500,7 +1220,7 @@ fat32_readdirent:
 
 
 fat32_finddirent:
-  ; Finds a particular directory entry.  X,Y point to the 11-character filename to seek.
+  ; Finds a particular directory entry. X,Y point to the 11-character filename to seek.
   ; The directory should already be open for iteration.
 
   ; Form ZP pointer to user's filename
@@ -525,6 +1245,102 @@ fat32_finddirent:
   clc
   rts
 
+fat32_markdeleted:
+  ; Mark the file as deleted
+  ; We need to stash the first character at index 0x0D
+  ldy #$00
+  lda (zp_sd_address),y
+  ldy #$0d
+  sta (zp_sd_address),y
+
+  ; Now put 0xE5 at the first byte
+  ldy #$00
+  lda #$e5 
+  sta (zp_sd_address),y
+
+  ; Get start cluster high word
+  ldy #$14
+  lda (zp_sd_address),y
+  sta fat32_nextcluster+2
+  iny
+  lda (zp_sd_address),y
+  sta fat32_nextcluster+3
+
+  ; And low word
+  ldy #$1a
+  lda (zp_sd_address),y
+  sta fat32_nextcluster
+  iny
+  lda (zp_sd_address),y
+  sta fat32_nextcluster+1
+
+  ; Write the dirent
+  jsr fat32_writecurrentsector
+
+  ; Done
+  clc
+  rts
+
+fat32_deletefile:
+  ; Removes the open file from the SD card.
+  ; The directory needs to be open and
+  ; zp_sd_address pointed to the first byte of the file entry.
+
+  ; Mark the file as "Removed"
+  jsr fat32_markdeleted
+
+  ; We will read a new sector the first time around
+  stz fat32_lastsector
+  stz fat32_lastsector+1
+  stz fat32_lastsector+2
+  stz fat32_lastsector+3
+
+  ; Now we need to iterate through this file's cluster chain, and remove it from the FAT.
+  ldy #0
+.chainloop
+  ; Seek to cluster
+  sec
+  jsr fat32_seekcluster
+
+  ; Is this the end of the chain?
+  lda fat32_nextcluster+3
+  bmi .endofchain
+
+  ; Zero it out
+  lda #0
+  sta (zp_sd_address),y
+  dey
+  sta (zp_sd_address),y
+  dey
+  sta (zp_sd_address),y
+  dey
+  sta (zp_sd_address),y
+
+  ; Write the FAT
+  jsr fat32_updatefat
+
+  ; And go again for another pass.
+  jmp .chainloop
+
+.endofchain
+  ; This is the last cluster in the chain.
+
+  ; Just zero it out,
+  lda #0
+  sta (zp_sd_address),y
+  dey
+  sta (zp_sd_address),y
+  dey
+  sta (zp_sd_address),y
+  dey
+  sta (zp_sd_address),y
+
+  ; Write the FAT
+  jsr fat32_updatefat
+
+  ; And we're done!
+  clc
+  rts
 
 fat32_file_readbyte:
   ; Read a byte from an open file
@@ -566,21 +1382,17 @@ fat32_file_readbyte:
   sta fat32_address+1
 
   jsr fat32_readnextsector
-  bcs .rts                    ; this shouldn't happen
+  bcs .rts  
 
 .gotdata
   ldy #0
   lda (zp_sd_address),y
 
   inc zp_sd_address
-  bne .rts
+  bne .rts  
   inc zp_sd_address+1
-  bne .rts
-  inc zp_sd_address+2
-  bne .rts
-  inc zp_sd_address+3
 
-.rts
+.rts:
   rts
 
 
@@ -624,6 +1436,102 @@ fat32_file_read:
 
   bne .wholesectorreadloop
 
-.done
+.done:
+  rts
+
+fat32_file_write:
+  ; Write a whole file from memory.  It's assumed the dirent has just been created 
+  ; and no data has been written yet.
+
+  ; Start at the first cluster for this file
+  lda fat32_filecluster
+  sta fat32_lastcluster
+  lda fat32_filecluster+1
+  sta fat32_lastcluster+1
+  lda fat32_filecluster+2
+  sta fat32_lastcluster+2
+  lda fat32_filecluster+3
+  sta fat32_lastcluster+3
+
+  lda fat32_filecluster
+  sta fat32_nextcluster
+  lda fat32_filecluster+1
+  sta fat32_nextcluster+1
+  lda fat32_filecluster+2
+  sta fat32_nextcluster+2
+  lda fat32_filecluster+3
+  sta fat32_nextcluster+3
+
+  ; Round the size up to the next whole sector
+  lda fat32_bytesremaining
+  cmp #1                      ; set carry if bottom 8 bits not zero
+  lda fat32_bytesremaining+1
+  adc #0                      ; add carry, if any
+  lsr                         ; divide by 2
+  adc #0                      ; round up
+
+  ; No data?
+  beq .fail
+
+  ; Store sector count - not a byte count anymore.
+  sta fat32_bytesremaining
+
+  ; We will be making a new cluster the first time around
+  stz fat32_pendingsectors
+
+  ; Write entire sectors from the user-supplied buffer
+.wholesectorwriteloop
+  ; Write a sector from fat32_address
+  jsr fat32_writenextsector
+  ;bcs .fail	; this shouldn't happen
+
+  ; Advance fat32_address by 512 bytes
+  clc
+  lda fat32_address+1
+  adc #2           
+  sta fat32_address+1
+
+  ldx fat32_bytesremaining    ; note - actually loads sectors remaining
+  dex
+  stx fat32_bytesremaining    ; note - actually stores sectors remaining
+
+  bne .wholesectorwriteloop
+
+  ; Done!
+.fail
+  rts
+
+fat32_open_cd:
+  ; Prepare to read from the current (last opened) directory.
+
+  pha
+  phx  
+  phy
+
+  ; Seek to first cluster of current directory
+  lda fat32_cdcluster
+  sta fat32_nextcluster
+  lda fat32_cdcluster+1
+  sta fat32_nextcluster+1
+  lda fat32_cdcluster+2
+  sta fat32_nextcluster+2
+  lda fat32_cdcluster+3
+  sta fat32_nextcluster+3
+
+  lda #<fat32_readbuffer
+  sta fat32_address
+  lda #>fat32_readbuffer
+  sta fat32_address+1
+
+  clc
+  jsr fat32_seekcluster
+
+  ; Set the pointer to a large value so we always read a sector the first time through
+  lda #$ff
+  sta zp_sd_address+1
+
+  ply
+  plx
+  pla
   rts
 

@@ -7,7 +7,7 @@ Sample code is provided in the [src](../src) folder, with one file corresponding
 
 The code is based on Ben Eater's code, and can be assembled with the same kind of command:
 
-    vasm6502-oldstyle -Fbin -dotdir <filename>
+    vasm6502-oldstyle -Fbin -dotdir -c02 <filename>
 
 I'm using local labels, but hopefully it's clear enough how they work - if not, refer to the
 vasm documentation.
