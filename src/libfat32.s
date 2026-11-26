@@ -471,28 +471,40 @@ _runexpand:
   clc
   lda fat32_runcluster
   adc #1
+  php
   cmp fat32_nextcluster
   beq :+
+  pla
   jmp _runexpanddone
 :
+  plp
   lda fat32_runcluster+1
   adc #0
+  php
   cmp fat32_nextcluster+1
   beq :+
+  pla
   jmp _runexpanddone
 :
+  plp
   lda fat32_runcluster+2
   adc #0
+  php
   cmp fat32_nextcluster+2
   beq :+
+  pla
   jmp _runexpanddone
 :
+  plp
   lda fat32_runcluster+3
   adc #0
+  php
   cmp fat32_nextcluster+3
   beq :+
+  pla
   jmp _runexpanddone
 :
+  plp
 
   ; Stop before pending-sectors overflows its single-byte counter.
   lda fat32_pendingsectors
@@ -603,7 +615,10 @@ _not_eoc:
   ; so the cached FAT contents may have been overwritten.
   clc
   jsr fat32_seekcluster
-  bcs _readendofchain
+  bcc _readsector
+  ; A valid final cluster has an EOC link but still contains data.
+  lda fat32_pendingsectors
+  beq _readendofchain
 
 _readsector:
   dec fat32_pendingsectors
@@ -1224,8 +1239,13 @@ _gotdirrent:
   clc
   ldy #0
   lda (zp_sd_address),y
-  bne fat32_writedirent ; go again
-  ; End of directory. Now make a new entry.
+  beq _dnewentry        ; end of directory
+  cmp #$e5
+  bne fat32_writedirent ; in use - go again
+  ; A deleted entry: reuse it, so deleting and re-creating files (as
+  ; level and save files are) does not grow the directory without limit.
+_dnewentry:
+  ; Now make a new entry.
 _dloop:
   lda (fat32_filenamepointer),y  ; copy filename
   sta (zp_sd_address),y
